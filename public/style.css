@@ -1,0 +1,198 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  font-family: Arial, sans-serif;
+
+  background-image: url("bg.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+.centered-btn {
+  display: block;
+  margin: 20px auto 0 auto;
+  padding: 12px 25px;
+  font-size: 18px;
+  border: none;
+  border-radius: 12px;
+  background-color: #333; /* dark gray */
+  color: #fff;
+  cursor: pointer;
+  transition: 0.2s all;
+}
+
+.centered-btn:hover {
+  background-color: #555;
+}
+
+.overlay {
+  height: 100vh;
+  width: 100%;
+  background: rgba(0,0,0,0.65);
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  overflow: hidden;
+}
+
+
+.card {
+  background: rgba(245,245,245,0.95);
+  width: 390px;
+  max-height: 85vh;
+
+  padding: 25px;
+  border-radius: 18px;
+
+  box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+ border-radius: 0px 0 0 0px; /* right side flat */
+  overflow-y: auto;
+  overflow-y: auto;
+}
+
+.lang-switch {
+  text-align: right;
+}
+
+.lang-switch button {
+  border: none;
+  background: #ddd;
+  padding: 5px 8px;
+  margin-left: 5px;
+  cursor: pointer;
+}
+
+.logo {
+  width: 230px;
+  max-width: 80%;
+  display: block;
+  margin: 10px auto;
+  filter: grayscale(100%);
+}
+
+.intro {
+  text-align: center;
+  font-size: 14px;
+  color: #444;
+  margin-bottom: 15px;
+}
+
+.price-box {
+  background: #e5e5e5;
+  padding: 10px;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+label {
+  font-size: 13px;
+  margin-top: 10px;
+  display: block;
+}
+
+input, select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #aaa;
+  margin-top: 5px;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border: 1px solid #000;
+}
+
+.day-selector {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.day-btn {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f0f0f0;
+  border: 1px solid #aaa;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: center;
+}
+
+.day-btn:hover {
+  background: #ddd;
+}
+
+.day-selected {
+  background: #000;
+  color: #fff;
+}
+
+.checkbox-group {
+  font-size: 13px;
+  margin: 10px 0;
+}
+
+.checkbox-group label {
+  display: block;
+}
+
+.total {
+  font-weight: bold;
+  font-size: 18px;
+  text-align: center;
+  margin: 12px 0;
+}
+
+button#bookBtn {
+  width: 100%;
+  padding: 12px;
+  background: #000;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button#bookBtn:hover {
+  background: #111;
+}
+
+.spinner {
+  margin: 15px auto;
+  width: 30px;
+  height: 30px;
+  border: 4px solid #bbb;
+  border-top: 4px solid #000;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.hidden {
+  display: none;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 420px) {
+  .card {
+    width: 90%;
+  }
+
+  .logo {
+    width: 180px;
+  }
+}
