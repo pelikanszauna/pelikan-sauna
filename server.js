@@ -1,125 +1,131 @@
-const form = document.getElementById("bookingForm");
-const spinner = document.getElementById("spinner");
-const messageBox = document.getElementById("messageBox");
+import express from "express";
+import sqlite3 from "sqlite3";
+import Stripe from "stripe";
+import nodemailer from "nodemailer";
 
-const peopleInput = document.getElementById("peopleInput");
-const totalPrice = document.getElementById("totalPrice");
+const app = express();
+const db = new sqlite3.Database("./db.sqlite");
 
-const daySelect = document.getElementById("daySelect");
-const timeSelect = document.getElementById("timeSelect");
-const cardRadio = document.getElementById("cardRadio");
-const dontBotherCheckbox = document.getElementById("dontBotherCheckbox");
-const nameInput = document.getElementById("nameInput");
-const emailInput = document.getElementById("emailInput");
-const phoneInput = document.getElementById("phoneInput");
-const submitBtn = document.getElementById("submitBtn");
+// Use environment variables
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// -------- SESSION DAYS --------
-const sessions = [
-  "Arasztópart 26.02.01",
-  "Arasztópart 26.02.02",
-  "Arasztópart 26.02.03"
-];
+app.use(express.json());
+app.use(express.static("public"));
 
-sessions.forEach(s => {
-  const opt = document.createElement("option");
-  opt.value = s;
-  opt.textContent = s;
-  daySelect.appendChild(opt);
+// Create bookings table
+db.run(`
+CREATE TABLE IF NOT EXISTS bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT,
+  time TEXT,
+  people INTEGER,
+  name TEXT,
+  email TEXT,
+  phone TEXT
+)
+`);
+
+// Nodemailer setup
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
 });
 
-// -------- PRICE CALCULATION --------
-function updateTotal() {
-  const people = Number(peopleInput.value);
-  totalPrice.textContent = people * 2500;
-}
-updateTotal();
-peopleInput.addEventListener("input", updateTotal);
+// -------- AVAILABILITY ENDPOINT --------
+app.get("/api/availability", (req, res) => {
+  const { day, time } = req.query;
 
-// -------- AVAILABILITY CHECK --------
-async function updateAvailability() {
-  if (!daySelect.value || !timeSelect.value) return;
-
-  try {
-    const res = await fetch(
-      `/api/availability?day=${encodeURIComponent(daySelect.value)}&time=${encodeURIComponent(timeSelect.value)}`
-    );
-    const data = await res.json();
-
-    peopleInput.max = data.remaining;
-    if (Number(peopleInput.value) > data.remaining) {
-      peopleInput.value = data.remaining;
+  db.get(
+    `SELECT COALESCE(SUM(people),0) AS booked FROM bookings WHERE day=? AND time=?`,
+    [day, time],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: "Database error" });
+      const remaining = 6 - row.booked;
+      res.json({ remaining });
     }
+  );
+});
 
-    updateTotal();
-  } catch (err) {
-    console.error("Availability error:", err);
+// -------- BOOKING ENDPOINT --------
+app.post("/api/book", (req, res) => {
+  const { day, time, people, name, email, phone } = req.body;
+
+  if (!day || !time || !people || !name || !email || !phone) {
+    return res.status(400).json({ error: "Missing booking data" });
   }
-}
 
-daySelect.addEventListener("change", updateAvailability);
-timeSelect.addEventListener("change", updateAvailability);
+  // Check availability
+  db.get(
+    `SELECT COALESCE(SUM(people),0) AS booked FROM bookings WHERE day=? AND time=?`,
+    [day, time],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: "Database error" });
 
-// -------- FORM SUBMIT --------
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  messageBox.textContent = "";
+      const remaining = 6 - row.booked;
 
-  // Validation
-  if (!daySelect.value) return alert("Select day");
-  if (!timeSelect.value) return alert("Select time");
-  if (!nameInput.value.trim()) return alert("Enter name");
-  if (!emailInput.value.trim()) return alert("Enter email");
-  if (!phoneInput.value.trim()) return alert("Enter phone");
-  if (!dontBotherCheckbox.checked) return alert("Accept rules");
+      if (people > remaining) {
+        return res.json({ error: `Only ${remaining} places left for this session` });
+      }
 
-  spinner.style.display = "inline";
-  submitBtn.disabled = true;
+      // Save booking
+      db.run(
+        `INSERT INTO bookings (day,time,people,name,email,phone) VALUES (?,?,?,?,?,?)`,
+        [day, time, people, name, email, phone],
+        (err) => {
+          if (err) return res.status(500).json({ error: "Database insert error" });
 
-  const people = Number(peopleInput.value);
+          // Send emails
+          // 1️⃣ Customer email
+          transporter.sendMail({
+            from: `"Pelikan Sauna" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: "Booking Confirmation - Pelikan Sauna",
+            text: `Hi ${name},\n\nYour booking is confirmed!\n\nDate: ${day}\nTime: ${time}\nPeople: ${people}\n\nThank you for choosing Pelikan Sauna.`
+          });
 
-  const bookingData = {
-    day: daySelect.value,
-    time: timeSelect.value,
-    people,
-    name: nameInput.value,
-    email: emailInput.value,
-    phone: phoneInput.value
-  };
+          // 2️⃣ Admin email
+          transporter.sendMail({
+            from: `"Pelikan Sauna" <${process.env.EMAIL_USER}>`,
+            to: "pelikanszauna@gmail.com",
+            subject: "New Booking Received",
+            text: `New booking:\nName: ${name}\nEmail: ${email}\nPhone: ${phone}\nDate: ${day}\nTime: ${time}\nPeople: ${people}`
+          });
 
+          res.json({ success: true });
+        }
+      );
+    }
+  );
+});
+
+// -------- STRIPE PAYMENT ENDPOINT --------
+app.post("/api/pay", async (req, res) => {
   try {
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bookingData)
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "huf",
+          product_data: { name: "Pelikan Sauna Session" },
+          unit_amount: req.body.amount * 100
+        },
+        quantity: 1
+      }],
+      success_url: "https://pelikanbudapest.onrender.com/success.html",
+      cancel_url: "https://pelikanbudapest.onrender.com/cancel.html"
     });
 
-    const data = await res.json();
-
-    if (data.error) {
-      messageBox.textContent = data.error;
-    } else {
-      // Card payment
-      if (cardRadio.checked) {
-        const payRes = await fetch("/api/pay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: people * 2500 })
-        });
-        const payData = await payRes.json();
-        window.location.href = payData.url;
-      } else {
-        messageBox.textContent = "Booking successful!";
-        form.reset();
-        updateTotal();
-        updateAvailability();
-      }
-    }
+    res.json({ url: session.url });
   } catch (err) {
     console.error(err);
-    messageBox.textContent = "Server error";
+    res.status(500).json({ error: "Stripe error" });
   }
-
-  spinner.style.display = "none";
-  submitBtn.disabled = false;
 });
+
+// -------- START SERVER --------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Server running on port " + PORT));
