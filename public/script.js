@@ -46,9 +46,20 @@ async function updateAvailability() {
     );
     const data = await res.json();
 
-    peopleInput.max = data.remaining;
-    if (Number(peopleInput.value) > data.remaining) {
-      peopleInput.value = data.remaining;
+    const maxPeople = data.remaining;
+
+    if (maxPeople === 0) {
+      peopleInput.value = 0;
+      peopleInput.disabled = true;
+      submitBtn.disabled = true;
+      messageBox.textContent = "This session is fully booked";
+    } else {
+      peopleInput.disabled = false;
+      submitBtn.disabled = false;
+      peopleInput.min = 1;
+      peopleInput.max = maxPeople;
+      if (Number(peopleInput.value) > maxPeople) peopleInput.value = maxPeople;
+      messageBox.textContent = "";
     }
 
     updateTotal();
@@ -57,6 +68,8 @@ async function updateAvailability() {
   }
 }
 
+// Update availability on load and on selection
+window.addEventListener("DOMContentLoaded", updateAvailability);
 daySelect.addEventListener("change", updateAvailability);
 timeSelect.addEventListener("change", updateAvailability);
 
@@ -71,6 +84,8 @@ form.addEventListener("submit", async (e) => {
   if (!emailInput.value.trim()) return alert("Enter email");
   if (!phoneInput.value.trim()) return alert("Enter phone");
   if (!dontBotherCheckbox.checked) return alert("Accept rules");
+
+  if (Number(peopleInput.value) === 0) return alert("No spots available");
 
   spinner.style.display = "inline";
   submitBtn.disabled = true;
@@ -107,7 +122,7 @@ form.addEventListener("submit", async (e) => {
         const payData = await payRes.json();
         window.location.href = payData.url;
       } else {
-        messageBox.textContent = "Booking successful!";
+        messageBox.textContent = `Booking #${data.booking_number} successful!`;
         form.reset();
         updateTotal();
         updateAvailability();
