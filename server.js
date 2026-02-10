@@ -1,75 +1,168 @@
 import express from "express";
-import bodyParser from "body-parser";
-import cors from "cors";
-import { Low } from "lowdb";
-import { JSONFile } from "lowdb/node";
+import fs from "fs";
+import path from "path";
+import nodemailer from "nodemailer";
+import { google } from "googleapis";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 app.use(express.static("public"));
 
-// ----------------- LOWDB -----------------
-const adapter = new JSONFile("db.json");
-const db = new Low(adapter);
+/* ---------------- CONFIG ---------------- */
 
-await db.read();
-db.data ||= { sessions: {} };
+const MAX_SPOTS = 6;
+const BOOKINGS_FILE = path.join(__dirname, "bookings.json");
 
-// Initialize sessions if not exist
-const sessionDays = ["2026-02-01", "2026-02-02", "2026-02-03"];
-const timeSlots = ["10:00", "11:30", "13:00"];
-const MAX_PEOPLE = 6;
+/* ---------------- STORAGE ---------------- */
 
-for (const day of sessionDays) {
-  if (!db.data.sessions[day]) db.data.sessions[day] = {};
-  for (const time of timeSlots) {
-    db.data.sessions[day][time] ||= { bookings: [], remaining: MAX_PEOPLE };
-  }
+function loadBookings() {
+  if (!fs.existsSync(BOOKINGS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8"));
 }
-await db.write();
 
-// ----------------- ROUTES -----------------
+function saveBookings(data) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(data, null, 2));
+}
+
+/* ---------------- EMAIL (OAuth2) ---------------- */
+
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET
+);
+
+oAuth2Client.setCredentials({
+  refresh_token: process.env.GMAIL_REFRESH_TOKEN
+});
+
+async function sendEmail(to, subject, text) {
+  const accessToken = await oAuth2Client.getAccessToken();
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      type: "OAuth2",
+      user: process.env.EMAIL_USER,
+      clientId: process.env.GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+      accessToken: accessToken.token
+    }
+  });
+
+  await transporter.sendMail({
+    from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    text
+  });
+}
+
+/* ---------------- HELPERS ---------------- */
+
+function spotsTaken(bookings, day, time) {
+  return bookings
+    .filter(b => b.day === day && b.time === time)
+    .reduce((sum, b) => sum + b.people, 0);
+}
+
+/* ---------------- API ---------------- */
+
+// availability for frontend
+app.get("/api/availability", (req, res) => {
+  const bookings = loadBookings();
+  const availability = {};
+
+  bookings.forEach(b => {
+    const key = `${b.day}|${b.time}`;
+    availability[key] = (availability[key] || 0) + b.people;
+  });
+
+  res.json(availability);
+});
+
+// create booking
 app.post("/api/book", async (req, res) => {
-  const { day, time, people, name, email, phone, payment } = req.body;
+  try {
+    const { day, time, people, name, email, payment } = req.body;
 
-  if (!day || !time || !people || !name || !email || !phone) {
-    return res.status(400).json({ error: "Missing data" });
+    if (!day || !time || !people || !name || !email) {
+      return res.status(400).json({ error: "Missing data" });
+    }
+
+    const bookings = loadBookings();
+    const taken = spotsTaken(bookings, day, time);
+
+    if (taken + people > MAX_SPOTS) {
+      return res.status(400).json({
+        error: "This session is fully booked"
+      });
+    }
+
+    const bookingNumber = Date.now();
+
+    const booking = {
+      bookingNumber,
+      day,
+      time,
+      people,
+      name,
+      email,
+      payment,
+      createdAt: new Date().toISOString()
+    };
+
+    bookings.push(booking);
+    saveBookings(bookings);
+
+    // EMAILS (non-blocking)
+    const message = `
+Booking number: ${bookingNumber}
+
+Name: ${name}
+Date: ${day}
+Time: ${time}
+People: ${people}
+Payment: ${payment}
+`;
+
+    try {
+      await sendEmail(
+        email,
+        `Pelikan Szauna Booking #${bookingNumber}`,
+        `Thank you for your booking!\n${message}`
+      );
+
+      await sendEmail(
+        "pelikanszauna@gmail.com",
+        `New booking #${bookingNumber}`,
+        message
+      );
+    } catch (emailError) {
+      console.error("Email failed, booking still saved:", emailError.message);
+    }
+
+    res.json({
+      success: true,
+      bookingNumber,
+      emailStatus: "attempted"
+    });
+
+  } catch (err) {
+    console.error("Booking error:", err);
+    res.status(500).json({ error: "Server error" });
   }
-
-  const session = db.data.sessions[day]?.[time];
-  if (!session) return res.status(400).json({ error: "Invalid session" });
-
-  if (people > session.remaining) {
-    return res.status(400).json({ error: "Not enough spots left" });
-  }
-
-  const newBooking = {
-    name,
-    email,
-    phone,
-    people,
-    payment,
-    timestamp: Date.now()
-  };
-
-  session.bookings.push(newBooking);
-  session.remaining -= people;
-
-  await db.write();
-
-  res.json({ success: true });
 });
 
-app.get("/api/sessions", async (req, res) => {
-  await db.read();
-  res.json(db.data.sessions);
-});
 
-// ----------------- START SERVER -----------------
+/* ---------------- START ---------------- */
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
