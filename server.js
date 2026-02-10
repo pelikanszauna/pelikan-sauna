@@ -53,16 +53,25 @@ async function sendEmail(to, subject, text) {
       clientSecret: process.env.GMAIL_CLIENT_SECRET,
       refreshToken: process.env.GMAIL_REFRESH_TOKEN,
       accessToken: accessToken.token
-    }
+    },
+    logger: true,       // <-- add this
+    debug: true         // <-- add this
   });
 
-  await transporter.sendMail({
-    from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    text
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
+      to,
+      subject,
+      text
+    });
+    console.log("Email sent:", info);
+  } catch (err) {
+    console.error("Email sending failed:", err);
+    throw err;
+  }
 }
+
 
 /* ---------------- HELPERS ---------------- */
 
