@@ -1,3 +1,4 @@
+// script.js
 const daySelect = document.getElementById("daySelect");
 const timeSelect = document.getElementById("timeSelect");
 const peopleInput = document.getElementById("peopleInput");
@@ -6,12 +7,20 @@ const messageBox = document.getElementById("messageBox");
 const form = document.getElementById("bookingForm");
 const spinner = document.getElementById("spinner");
 
-const PRICE = 2500;
+const PRICE_PER_PERSON = 2500;
 const MAX_SPOTS = 6;
-const TIMES = ["10:00", "11:30", "13:00"];
-const DAYS = ["26.02.01", "26.02.02", "26.02.03"];
 
-// ---------------- INIT ----------------
+// ----------------- PRICE -----------------
+function updateTotal() {
+  totalPrice.textContent = peopleInput.value * PRICE_PER_PERSON;
+}
+peopleInput.addEventListener("input", updateTotal);
+updateTotal();
+
+// ----------------- SESSIONS -----------------
+const DAYS = ["2026-02-01", "2026-02-02", "2026-02-03"];
+const TIMES = ["10:00", "11:30", "13:00"];
+
 DAYS.forEach(d => {
   const opt = document.createElement("option");
   opt.value = d;
@@ -19,20 +28,11 @@ DAYS.forEach(d => {
   daySelect.appendChild(opt);
 });
 
-// ---------------- PRICE ----------------
-function updatePrice() {
-  totalPrice.textContent = peopleInput.value * PRICE;
-}
-peopleInput.addEventListener("input", updatePrice);
-updatePrice();
-
-// ---------------- AVAILABILITY ----------------
 async function loadAvailability() {
   const res = await fetch("/api/availability");
   const data = await res.json();
 
   timeSelect.innerHTML = "";
-
   TIMES.forEach(t => {
     const key = `${daySelect.value}|${t}`;
     const taken = data[key] || 0;
@@ -73,7 +73,7 @@ function adjustPeopleLimit() {
         if (peopleInput.value > remaining) peopleInput.value = remaining;
       }
 
-      updatePrice();
+      updateTotal();
     });
 }
 
@@ -82,21 +82,14 @@ timeSelect.addEventListener("change", adjustPeopleLimit);
 
 loadAvailability();
 
-// ---------------- SUBMIT ----------------
-form.addEventListener("submit", async e => {
+// ----------------- FORM SUBMIT -----------------
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
   messageBox.textContent = "";
   spinner.style.display = "inline-block";
   document.getElementById("submitBtn").disabled = true;
 
-  if (!timeSelect.value || peopleInput.value < 1) {
-    messageBox.textContent = "This session is fully booked.";
-    spinner.style.display = "none";
-    document.getElementById("submitBtn").disabled = false;
-    return;
-  }
-
-  const paymentMethod = document.querySelector('input[name="payment"]:checked')?.id === "cardRadio" ? "card" : "cash";
+  const paymentMethod = document.getElementById("cardRadio").checked ? "card" : "cash";
 
   const bookingData = {
     day: daySelect.value,
@@ -120,17 +113,28 @@ form.addEventListener("submit", async e => {
     if (data.error) {
       messageBox.textContent = data.error;
     } else {
-      messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
+      if (paymentMethod === "cash") {
+        messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
+        form.reset();
+        loadAvailability();
+      } else {
+        // CARD PAYMENT: create Stripe checkout session
+        const checkoutRes = await fetch("/api/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingNumber: data.bookingNumber,
+            amount: data.people * PRICE_PER_PERSON
+          })
+        });
 
-      if (data.stripeSessionId) {
-        // Stripe checkout redirect
-        const stripe = Stripe("pk_live_51SwkvQPlKb0t3bXyXekkalxeZrtiEYJijjpWJTGBVU0kcNtpEy1MKyrBbEjuwknlLEoaqoT9MqXsVjnPbAsjTU7200ScbEHI4b");
-        stripe.redirectToCheckout({ sessionId: data.stripeSessionId });
-        return;
+        const checkoutData = await checkoutRes.json();
+        if (checkoutData.url) {
+          window.location.href = checkoutData.url;
+        } else {
+          messageBox.textContent = "Stripe checkout failed.";
+        }
       }
-
-      form.reset();
-      loadAvailability();
     }
   } catch (err) {
     console.error(err);
