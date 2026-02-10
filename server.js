@@ -1,56 +1,79 @@
 import express from "express";
-import Stripe from "stripe";
+import bodyParser from "body-parser";
 import cors from "cors";
+import { Low, JSONFile } from "lowdb/node";
+import { nanoid } from "nanoid";
 
 const app = express();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const PORT = process.env.PORT || 10000;
 
+// ---------------- MIDDLEWARE ----------------
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
+app.use(express.static("public"));
 
-app.post("/create-checkout-session", async (req, res) => {
-  try {
-    const { totalPrice, paymentMethod } = req.body;
+// ----------------- LOWDB -----------------
+const adapter = new JSONFile("db.json");
+const db = new Low(adapter);
 
-    console.log("RAW totalPrice from frontend:", totalPrice);
+await db.read();
+db.data ||= { sessions: {} };
 
-    // 🔒 HARD SAFETY CHECK
-    const amount = Number(totalPrice);
+// ---------------- INITIALIZE SESSIONS -----------------
+const sessionDays = ["2026-02-01", "2026-02-02", "2026-02-03"];
+const timeSlots = ["10:00", "11:30", "13:00"];
+const MAX_PEOPLE = 6;
 
-    if (!Number.isInteger(amount) || amount < 200) {
-      return res.status(400).json({
-        error: "Invalid amount. Minimum is ~200 HUF.",
-      });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      payment_method_types:
-        paymentMethod === "cash" ? [] : ["card"],
-
-      line_items: [
-        {
-          price_data: {
-            currency: "huf",
-            product_data: {
-              name: "Sauna booking",
-            },
-            unit_amount: amount, // ✅ NO DIVISION
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: "https://pelikanszauna.onrender.com/success.html",
-      cancel_url: "https://pelikanszauna.onrender.com/cancel.html",
-    });
-
-    res.json({ url: session.url });
-  } catch (err) {
-    console.error("Stripe error:", err);
-    res.status(500).json({ error: "Stripe checkout failed" });
+for (const day of sessionDays) {
+  if (!db.data.sessions[day]) db.data.sessions[day] = {};
+  for (const time of timeSlots) {
+    db.data.sessions[day][time] ||= { bookings: [], remaining: MAX_PEOPLE };
   }
+}
+await db.write();
+
+// ----------------- ROUTES -----------------
+app.get("/api/sessions", async (req, res) => {
+  await db.read();
+  res.json(db.data.sessions);
 });
 
-app.listen(10000, () => {
-  console.log("Server running on port 10000");
+app.post("/api/book", async (req, res) => {
+  const { day, time, people, name, email, phone, payment } = req.body;
+
+  if (!day || !time || !people || !name || !email || !phone) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+
+  const session = db.data.sessions[day]?.[time];
+  if (!session) return res.status(400).json({ error: "Invalid session" });
+
+  if (people > session.remaining) {
+    return res.status(400).json({ error: "Not enough spots left" });
+  }
+
+  const bookingId = nanoid(6); // short unique booking number
+
+  const newBooking = {
+    id: bookingId,
+    name,
+    email,
+    phone,
+    people,
+    payment,
+    timestamp: Date.now()
+  };
+
+  session.bookings.push(newBooking);
+  session.remaining -= people;
+
+  await db.write();
+
+  // Respond with booking ID so front-end can show message
+  res.json({ success: true, bookingId });
+});
+
+// ----------------- START SERVER -----------------
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
