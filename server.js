@@ -89,16 +89,25 @@ app.get("/api/availability", (req, res) => {
 // create booking
 app.post("/api/book", async (req, res) => {
   try {
-    const { name, email, date, session, persons, paymentMethod } = req.body;
+    const {
+      name,
+      email,
+      day,       // 👈 coming from frontend
+      time,      // 👈 coming from frontend
+      people,
+      payment
+    } = req.body;
 
-    if (!name || !email || !date || !session || !persons) {
+    if (!name || !email || !day || !time || !people) {
       return res.status(400).json({ error: "Missing data" });
     }
 
     const bookings = loadBookings();
-    const taken = slotsTaken(bookings, date, session);
+    const taken = bookings
+      .filter(b => b.day === day && b.time === time)
+      .reduce((sum, b) => sum + b.people, 0);
 
-    if (taken + persons > MAX_SLOTS) {
+    if (taken + people > 6) {
       return res.status(400).json({
         error: "This session is fully booked"
       });
@@ -110,10 +119,10 @@ app.post("/api/book", async (req, res) => {
       bookingNumber,
       name,
       email,
-      date,
-      session,
-      persons,
-      paymentMethod,
+      day,
+      time,
+      people,
+      payment,
       createdAt: new Date().toISOString()
     };
 
@@ -124,10 +133,10 @@ app.post("/api/book", async (req, res) => {
 Booking number: ${bookingNumber}
 
 Name: ${name}
-Date: ${date}
-Session: ${session}
-Persons: ${persons}
-Payment: ${paymentMethod}
+Date: ${day}
+Time: ${time}
+People: ${people}
+Payment: ${payment}
 `;
 
     await sendEmail(
@@ -149,6 +158,7 @@ Payment: ${paymentMethod}
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 /* -------------------- START -------------------- */
 

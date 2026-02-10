@@ -92,21 +92,21 @@ form.addEventListener("submit", async (e) => {
 
   const people = Number(peopleInput.value);
 
-  const bookingData = {
-    day: daySelect.value,
-    time: timeSelect.value,
-    people,
-    name: nameInput.value,
-    email: emailInput.value,
-    phone: phoneInput.value
-  };
+const bookingData = {
+  day: daySelect.value,
+  time: document.getElementById("timeSelect").value,
+  people: Number(peopleInput.value),
+  name: document.getElementById("nameInput").value.trim(),
+  email: document.getElementById("emailInput").value.trim(),
+  payment: document.getElementById("cashRadio").checked ? "cash" : "card"
+};
 
-  try {
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bookingData)
-    });
+await fetch("/api/book", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(bookingData)
+});
+
 
     const data = await res.json();
 
