@@ -1,76 +1,145 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Pelikan Sauna | Booking</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="style.css">
-<script src="https://js.stripe.com/v3/"></script>
-</head>
+const daySelect = document.getElementById("daySelect");
+const timeSelect = document.getElementById("timeSelect");
+const peopleInput = document.getElementById("peopleInput");
+const totalPrice = document.getElementById("totalPrice");
+const messageBox = document.getElementById("messageBox");
+const form = document.getElementById("bookingForm");
 
-<body>
+const PRICE = 2500;
+const MAX_SPOTS = 6;
 
-<div class="overlay">
-  <div class="card">
+/* --------- STATIC DAYS & TIMES --------- */
 
-    <img src="pelikanlogo.png" class="logo">
+const DAYS = [
+  "2026-02-01",
+  "2026-02-02",
+  "2026-02-03"
+];
 
-    <p class="intro">
-      Welcome to Pelikan Sauna. Enjoy premium Finnish sauna experience in the heart of Budapest.
-    </p>
+const TIMES = ["10:00", "11:30", "13:00"];
 
-    <div class="price-box">
-      2500 HUF / person / 1.5 hour
-    </div>
+/* --------- INIT DAYS --------- */
 
-    <form id="bookingForm">
+function initDays() {
+  daySelect.innerHTML = "";
 
-      <label>Session Day</label>
-      <select id="daySelect"></select>
+  DAYS.forEach((day, index) => {
+    const opt = document.createElement("option");
+    opt.value = day;
+    opt.textContent = day;
+    if (index === 0) opt.selected = true; // 👈 IMPORTANT
+    daySelect.appendChild(opt);
+  });
+}
 
-      <label>Time Slot</label>
-      <select id="timeSelect">
-        <option value="10:00">10:00</option>
-        <option value="11:30">11:30</option>
-        <option value="13:00">13:00</option>
-      </select>
+/* --------- PRICE --------- */
 
-      <label>People</label>
-      <input type="number" id="peopleInput" min="1" max="6" value="1">
+function updatePrice() {
+  totalPrice.textContent = peopleInput.value * PRICE;
+}
 
-      <label>Name</label>
-      <input type="text" id="nameInput">
+peopleInput.addEventListener("input", updatePrice);
 
-      <label>Email</label>
-      <input type="email" id="emailInput">
+/* --------- AVAILABILITY --------- */
 
-      <label>Phone</label>
-      <input type="tel" id="phoneInput" placeholder="+36">
+async function loadAvailability() {
+  const res = await fetch("/api/availability");
+  const data = await res.json();
 
-      <label>
-        <input type="checkbox" id="dontBotherCheckbox">
-        I accept sauna rules
-      </label>
+  timeSelect.innerHTML = "";
 
-      <label>Payment</label>
-      <input type="radio" name="payment" value="cash" id="cashRadio" checked> Cash
-      <input type="radio" name="payment" value="card" id="cardRadio"> Card
+  TIMES.forEach(time => {
+    const key = `${daySelect.value}|${time}`;
+    const taken = data[key] || 0;
+    const remaining = MAX_SPOTS - taken;
 
-      <div class="total">
-        Total: <span id="totalPrice">2500</span> HUF
-      </div>
+    const opt = document.createElement("option");
 
-      <button type="submit" id="submitBtn">
-        Book Session <span id="spinner" style="display:none;">⏳</span>
-      </button>
+    if (remaining <= 0) {
+      opt.textContent = `${time} (FULL)`;
+      opt.disabled = true;
+    } else {
+      opt.textContent = `${time} (${remaining} spots left)`;
+      opt.value = time;
+    }
 
-      <div id="messageBox"></div>
+    timeSelect.appendChild(opt);
+  });
 
-    </form>
+  adjustPeopleLimit();
+}
 
-  </div>
-</div>
+function adjustPeopleLimit() {
+  const selectedTime = timeSelect.value;
+  if (!selectedTime) return;
 
-<script src="script.js"></script>
-</body>
-</html>
+  fetch("/api/availability")
+    .then(res => res.json())
+    .then(data => {
+      const key = `${daySelect.value}|${selectedTime}`;
+      const taken = data[key] || 0;
+      const remaining = MAX_SPOTS - taken;
+
+      peopleInput.disabled = remaining <= 0;
+      peopleInput.min = 1;
+      peopleInput.max = remaining;
+      if (peopleInput.value > remaining) {
+        peopleInput.value = remaining;
+      }
+
+      updatePrice();
+    });
+}
+
+daySelect.addEventListener("change", loadAvailability);
+timeSelect.addEventListener("change", adjustPeopleLimit);
+
+/* --------- SUBMIT --------- */
+
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  messageBox.textContent = "";
+
+  const payment = document.querySelector('input[name="payment"]:checked').value;
+
+  const bookingData = {
+    day: daySelect.value,
+    time: timeSelect.value,
+    people: Number(peopleInput.value),
+    name: document.getElementById("nameInput").value.trim(),
+    email: document.getElementById("emailInput").value.trim(),
+    phone: document.getElementById("phoneInput").value.trim(),
+    payment
+  };
+
+  try {
+    const res = await fetch("/api/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingData)
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      messageBox.textContent = data.error;
+    } else if (data.paymentUrl) {
+      window.location.href = data.paymentUrl;
+    } else {
+      messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
+      form.reset();
+      initDays();
+      loadAvailability();
+      updatePrice();
+    }
+  } catch (err) {
+    console.error(err);
+    messageBox.textContent = "Server error. Try again later.";
+  }
+});
+
+/* --------- INITIAL LOAD --------- */
+
+initDays();
+updatePrice();
+loadAvailability();
