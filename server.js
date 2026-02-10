@@ -4,22 +4,20 @@ import path from "path";
 import nodemailer from "nodemailer";
 import { google } from "googleapis";
 import Stripe from "stripe";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const __dirname = path.resolve();
+
+// ---------------- CONFIG ----------------
+const MAX_SPOTS = 6;
+const PRICE = 2500;
+const BOOKINGS_FILE = path.join(__dirname, "bookings.json");
 
 app.use(express.json());
 app.use(express.static("public"));
 
-/* ---------------- CONFIG ---------------- */
-const MAX_SPOTS = 6;
-const BOOKINGS_FILE = path.join(__dirname, "bookings.json");
-
-/* ---------------- STORAGE ---------------- */
+// ---------------- STORAGE ----------------
 function loadBookings() {
   if (!fs.existsSync(BOOKINGS_FILE)) return [];
   return JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8"));
@@ -29,12 +27,14 @@ function saveBookings(data) {
   fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(data, null, 2));
 }
 
-/* ---------------- EMAIL (OPTIONAL) ---------------- */
+// ---------------- EMAIL (non-blocking) ----------------
 const oAuth2Client = new google.auth.OAuth2(
   process.env.GMAIL_CLIENT_ID,
   process.env.GMAIL_CLIENT_SECRET
 );
-oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+oAuth2Client.setCredentials({
+  refresh_token: process.env.GMAIL_REFRESH_TOKEN
+});
 
 async function sendEmail(to, subject, text) {
   try {
@@ -58,20 +58,19 @@ async function sendEmail(to, subject, text) {
       subject,
       text
     });
-
   } catch (err) {
     console.error("Email failed, booking still saved:", err.message);
   }
 }
 
-/* ---------------- HELPERS ---------------- */
+// ---------------- HELPERS ----------------
 function spotsTaken(bookings, day, time) {
   return bookings
     .filter(b => b.day === day && b.time === time)
     .reduce((sum, b) => sum + b.people, 0);
 }
 
-/* ---------------- API ---------------- */
+// ---------------- API ----------------
 
 // availability for frontend
 app.get("/api/availability", (req, res) => {
@@ -102,7 +101,7 @@ app.post("/api/book", async (req, res) => {
       return res.status(400).json({ error: "This session is fully booked" });
     }
 
-    const bookingNumber = Date.now(); // simple unique number
+    const bookingNumber = Date.now();
 
     const booking = {
       bookingNumber,
@@ -118,9 +117,9 @@ app.post("/api/book", async (req, res) => {
     bookings.push(booking);
     saveBookings(bookings);
 
-    // Send emails (non-blocking)
+    // send emails asynchronously (don't block booking)
     const message = `
-Booking #${bookingNumber}
+Booking number: ${bookingNumber}
 Name: ${name}
 Date: ${day}
 Time: ${time}
@@ -128,33 +127,40 @@ People: ${people}
 Payment: ${payment}
 `;
 
-    sendEmail(email, `Your booking #${bookingNumber}`, `Thank you!\n${message}`);
+    sendEmail(email, `Pelikan Szauna Booking #${bookingNumber}`, `Thank you for your booking!\n${message}`);
     sendEmail("pelikanszauna@gmail.com", `New booking #${bookingNumber}`, message);
 
-    // Stripe payment (redirect only if card)
+    // ---------------- STRIPE PAYMENT ----------------
     if (payment === "card" && process.env.STRIPE_SECRET_KEY) {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
-        line_items: [{ price_data: { currency: "huf", product_data: { name: `Sauna Booking #${bookingNumber}` }, unit_amount: 2500 * people }, quantity: 1 }],
+        line_items: [{
+          price_data: {
+            currency: "huf",
+            product_data: { name: `Sauna Booking #${bookingNumber}` },
+            unit_amount: PRICE * people
+          },
+          quantity: 1
+        }],
         mode: "payment",
         success_url: `${req.headers.origin}/success.html?booking=${bookingNumber}`,
         cancel_url: `${req.headers.origin}/cancel.html`
       });
 
-      return res.json({ success: true, bookingNumber, stripeUrl: session.url });
+      return res.json({ success: true, bookingNumber, stripeSessionId: session.id });
     }
 
-    // Cash booking or no Stripe
+    // cash booking
     res.json({ success: true, bookingNumber });
-
   } catch (err) {
     console.error("Booking error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-/* ---------------- START SERVER ---------------- */
+// ---------------- START SERVER ----------------
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

@@ -7,10 +7,10 @@ const form = document.getElementById("bookingForm");
 
 const PRICE = 2500;
 const MAX_SPOTS = 6;
+const TIMES = ["10:00", "11:30", "13:00"];
+const DAYS = ["26.02.01", "26.02.02", "26.02.03"];
 
-const DAYS = ["Arasztópart 26.02.01","Arasztópart 26.02.02","Arasztópart 26.02.03"];
-const TIMES = ["10:00","11:30","13:00"];
-
+// populate day select
 DAYS.forEach(d => {
   const opt = document.createElement("option");
   opt.value = d;
@@ -18,13 +18,14 @@ DAYS.forEach(d => {
   daySelect.appendChild(opt);
 });
 
+// price update
 function updatePrice() {
   totalPrice.textContent = peopleInput.value * PRICE;
 }
-
 peopleInput.addEventListener("input", updatePrice);
 updatePrice();
 
+// load availability
 async function loadAvailability() {
   const res = await fetch("/api/availability");
   const data = await res.json();
@@ -37,7 +38,6 @@ async function loadAvailability() {
     const remaining = MAX_SPOTS - taken;
 
     const opt = document.createElement("option");
-
     if (remaining <= 0) {
       opt.textContent = `${t} (FULL)`;
       opt.disabled = true;
@@ -45,7 +45,6 @@ async function loadAvailability() {
       opt.textContent = `${t} (${remaining} spots left)`;
       opt.value = t;
     }
-
     timeSelect.appendChild(opt);
   });
 
@@ -82,6 +81,7 @@ timeSelect.addEventListener("change", adjustPeopleLimit);
 
 loadAvailability();
 
+// ---------------- SUBMIT ----------------
 form.addEventListener("submit", async e => {
   e.preventDefault();
   messageBox.textContent = "";
@@ -97,31 +97,30 @@ form.addEventListener("submit", async e => {
     people: Number(peopleInput.value),
     name: document.getElementById("nameInput").value.trim(),
     email: document.getElementById("emailInput").value.trim(),
-    payment: document.querySelector('input[name="payment"]:checked').value
+    payment: document.querySelector('input[name="payment"]:checked')?.value
   };
 
-  try {
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bookingData)
-    });
+  const res = await fetch("/api/book", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bookingData)
+  });
 
-    const data = await res.json();
+  const data = await res.json();
 
-    if (data.error) {
-      messageBox.textContent = data.error;
-    } else if (data.stripeUrl) {
-      // redirect to Stripe checkout
-      window.location.href = data.stripeUrl;
-    } else {
-      messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
-      form.reset();
-      loadAvailability();
+  if (data.error) {
+    messageBox.textContent = data.error;
+  } else {
+    messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
+
+    // redirect to Stripe if needed
+    if (data.stripeSessionId) {
+      const stripe = Stripe("pk_live_51SwkvQPlKb0t3bXyXekkalxeZrtiEYJijjpWJTGBVU0kcNtpEy1MKyrBbEjuwknlLEoaqoT9MqXsVjnPbAsjTU7200ScbEHI4b"); // replace with your publishable key
+      stripe.redirectToCheckout({ sessionId: data.stripeSessionId });
+      return;
     }
 
-  } catch (err) {
-    console.error(err);
-    messageBox.textContent = "Server error. Try again later.";
+    form.reset();
+    loadAvailability();
   }
 });
