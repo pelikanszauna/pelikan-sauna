@@ -15,7 +15,7 @@ app.use("/webhook", express.raw({ type: "application/json" }));
 
 const BOOKINGS_FILE = path.join(process.cwd(), "bookings.json");
 const MAX_SPOTS = 6;
-const PRICE = 2500; // HUF per person
+const PRICE = 210; // HUF per person
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); // Must be set in Render env
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET; // Must be set in Render env
