@@ -1,145 +1,32 @@
-const daySelect = document.getElementById("daySelect");
-const timeSelect = document.getElementById("timeSelect");
-const peopleInput = document.getElementById("peopleInput");
-const totalPrice = document.getElementById("totalPrice");
-const messageBox = document.getElementById("messageBox");
-const form = document.getElementById("bookingForm");
+const form = document.getElementById("booking-form");
 
-const PRICE = 2500;
-const MAX_SPOTS = 6;
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-/* --------- STATIC DAYS & TIMES --------- */
+  const hours = Number(document.getElementById("hours").value);
+  const paymentMethod = document.querySelector(
+    'input[name="payment"]:checked'
+  ).value;
 
-const DAYS = [
-  "2026-02-01",
-  "2026-02-02",
-  "2026-02-03"
-];
+  const pricePerHour = 2500; // HUF
+  const totalPrice = hours * pricePerHour; // ✅ NO /100
 
-const TIMES = ["10:00", "11:30", "13:00"];
+  console.log("Calculated totalPrice:", totalPrice);
 
-/* --------- INIT DAYS --------- */
-
-function initDays() {
-  daySelect.innerHTML = "";
-
-  DAYS.forEach((day, index) => {
-    const opt = document.createElement("option");
-    opt.value = day;
-    opt.textContent = day;
-    if (index === 0) opt.selected = true; // 👈 IMPORTANT
-    daySelect.appendChild(opt);
+  const res = await fetch("/create-checkout-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      totalPrice,
+      paymentMethod,
+    }),
   });
-}
 
-/* --------- PRICE --------- */
-
-function updatePrice() {
-  totalPrice.textContent = peopleInput.value * PRICE;
-}
-
-peopleInput.addEventListener("input", updatePrice);
-
-/* --------- AVAILABILITY --------- */
-
-async function loadAvailability() {
-  const res = await fetch("/api/availability");
   const data = await res.json();
 
-  timeSelect.innerHTML = "";
-
-  TIMES.forEach(time => {
-    const key = `${daySelect.value}|${time}`;
-    const taken = data[key] || 0;
-    const remaining = MAX_SPOTS - taken;
-
-    const opt = document.createElement("option");
-
-    if (remaining <= 0) {
-      opt.textContent = `${time} (FULL)`;
-      opt.disabled = true;
-    } else {
-      opt.textContent = `${time} (${remaining} spots left)`;
-      opt.value = time;
-    }
-
-    timeSelect.appendChild(opt);
-  });
-
-  adjustPeopleLimit();
-}
-
-function adjustPeopleLimit() {
-  const selectedTime = timeSelect.value;
-  if (!selectedTime) return;
-
-  fetch("/api/availability")
-    .then(res => res.json())
-    .then(data => {
-      const key = `${daySelect.value}|${selectedTime}`;
-      const taken = data[key] || 0;
-      const remaining = MAX_SPOTS - taken;
-
-      peopleInput.disabled = remaining <= 0;
-      peopleInput.min = 1;
-      peopleInput.max = remaining;
-      if (peopleInput.value > remaining) {
-        peopleInput.value = remaining;
-      }
-
-      updatePrice();
-    });
-}
-
-daySelect.addEventListener("change", loadAvailability);
-timeSelect.addEventListener("change", adjustPeopleLimit);
-
-/* --------- SUBMIT --------- */
-
-form.addEventListener("submit", async e => {
-  e.preventDefault();
-  messageBox.textContent = "";
-
-  const payment = document.querySelector('input[name="payment"]:checked').value;
-
-  const bookingData = {
-    day: daySelect.value,
-    time: timeSelect.value,
-    people: Number(peopleInput.value),
-    name: document.getElementById("nameInput").value.trim(),
-    email: document.getElementById("emailInput").value.trim(),
-    phone: document.getElementById("phoneInput").value.trim(),
-    payment
-  };
-
-  try {
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bookingData)
-    });
-
-    const data = await res.json();
-
-    if (data.error) {
-      messageBox.textContent = data.error;
-    } else if (data.paymentUrl) {
-      window.location.href = data.paymentUrl;
-    } else {
-      messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
-      form.reset();
-      initDays();
-      loadAvailability();
-      updatePrice();
-    }
-  } catch (err) {
-    console.error(err);
-    messageBox.textContent = "Server error. Try again later.";
+  if (data.url) {
+    window.location.href = data.url;
+  } else {
+    alert(data.error || "Checkout failed");
   }
 });
-
-/* --------- INITIAL LOAD --------- */
-
-initDays();
-updatePrice();
-loadAvailability();
