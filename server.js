@@ -14,20 +14,23 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static("public"));
 
-/* -------------------- STORAGE -------------------- */
+/* ---------------- CONFIG ---------------- */
 
+const MAX_SPOTS = 6;
 const BOOKINGS_FILE = path.join(__dirname, "bookings.json");
+
+/* ---------------- STORAGE ---------------- */
 
 function loadBookings() {
   if (!fs.existsSync(BOOKINGS_FILE)) return [];
   return JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8"));
 }
 
-function saveBookings(bookings) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2));
+function saveBookings(data) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(data, null, 2));
 }
 
-/* -------------------- EMAIL (GMAIL OAUTH2) -------------------- */
+/* ---------------- EMAIL (OAuth2) ---------------- */
 
 const oAuth2Client = new google.auth.OAuth2(
   process.env.GMAIL_CLIENT_ID,
@@ -61,53 +64,42 @@ async function sendEmail(to, subject, text) {
   });
 }
 
-/* -------------------- HELPERS -------------------- */
+/* ---------------- HELPERS ---------------- */
 
-const MAX_SLOTS = 6;
-
-function slotsTaken(bookings, date, session) {
+function spotsTaken(bookings, day, time) {
   return bookings
-    .filter(b => b.date === date && b.session === session)
-    .reduce((sum, b) => sum + b.persons, 0);
+    .filter(b => b.day === day && b.time === time)
+    .reduce((sum, b) => sum + b.people, 0);
 }
 
-/* -------------------- API -------------------- */
+/* ---------------- API ---------------- */
 
 // availability for frontend
 app.get("/api/availability", (req, res) => {
   const bookings = loadBookings();
-  const result = {};
+  const availability = {};
 
   bookings.forEach(b => {
-    const key = `${b.date}_${b.session}`;
-    result[key] = (result[key] || 0) + b.persons;
+    const key = `${b.day}|${b.time}`;
+    availability[key] = (availability[key] || 0) + b.people;
   });
 
-  res.json(result);
+  res.json(availability);
 });
 
 // create booking
 app.post("/api/book", async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      day,       // 👈 coming from frontend
-      time,      // 👈 coming from frontend
-      people,
-      payment
-    } = req.body;
+    const { day, time, people, name, email, payment } = req.body;
 
-    if (!name || !email || !day || !time || !people) {
+    if (!day || !time || !people || !name || !email) {
       return res.status(400).json({ error: "Missing data" });
     }
 
     const bookings = loadBookings();
-    const taken = bookings
-      .filter(b => b.day === day && b.time === time)
-      .reduce((sum, b) => sum + b.people, 0);
+    const taken = spotsTaken(bookings, day, time);
 
-    if (taken + people > 6) {
+    if (taken + people > MAX_SPOTS) {
       return res.status(400).json({
         error: "This session is fully booked"
       });
@@ -117,11 +109,11 @@ app.post("/api/book", async (req, res) => {
 
     const booking = {
       bookingNumber,
-      name,
-      email,
       day,
       time,
       people,
+      name,
+      email,
       payment,
       createdAt: new Date().toISOString()
     };
@@ -159,8 +151,7 @@ Payment: ${payment}
   }
 });
 
-
-/* -------------------- START -------------------- */
+/* ---------------- START ---------------- */
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

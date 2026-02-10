@@ -1,138 +1,133 @@
-const form = document.getElementById("bookingForm");
-const spinner = document.getElementById("spinner");
-const messageBox = document.getElementById("messageBox");
-
-const peopleInput = document.getElementById("peopleInput");
-const totalPrice = document.getElementById("totalPrice");
-
 const daySelect = document.getElementById("daySelect");
 const timeSelect = document.getElementById("timeSelect");
-const cardRadio = document.getElementById("cardRadio");
-const dontBotherCheckbox = document.getElementById("dontBotherCheckbox");
-const nameInput = document.getElementById("nameInput");
-const emailInput = document.getElementById("emailInput");
-const phoneInput = document.getElementById("phoneInput");
-const submitBtn = document.getElementById("submitBtn");
+const peopleInput = document.getElementById("peopleInput");
+const totalPrice = document.getElementById("totalPrice");
+const messageBox = document.getElementById("messageBox");
+const form = document.getElementById("bookingForm");
 
-// -------- SESSION DAYS --------
-const sessions = [
+const PRICE = 2500;
+const MAX_SPOTS = 6;
+
+/* --------- SESSIONS (STATIC, NEVER DISAPPEAR) --------- */
+
+const DAYS = [
   "Arasztópart 26.02.01",
   "Arasztópart 26.02.02",
   "Arasztópart 26.02.03"
 ];
 
-sessions.forEach(s => {
+const TIMES = ["10:00", "11:30", "13:00"];
+
+DAYS.forEach(d => {
   const opt = document.createElement("option");
-  opt.value = s;
-  opt.textContent = s;
+  opt.value = d;
+  opt.textContent = d;
   daySelect.appendChild(opt);
 });
 
-// -------- PRICE CALCULATION --------
-function updateTotal() {
-  const people = Number(peopleInput.value);
-  totalPrice.textContent = people * 2500;
+/* --------- PRICE --------- */
+
+function updatePrice() {
+  totalPrice.textContent = peopleInput.value * PRICE;
 }
-updateTotal();
-peopleInput.addEventListener("input", updateTotal);
 
-// -------- AVAILABILITY CHECK --------
-async function updateAvailability() {
-  if (!daySelect.value || !timeSelect.value) return;
+peopleInput.addEventListener("input", updatePrice);
+updatePrice();
 
-  try {
-    const res = await fetch(
-      `/api/availability?day=${encodeURIComponent(daySelect.value)}&time=${encodeURIComponent(timeSelect.value)}`
-    );
-    const data = await res.json();
+/* --------- AVAILABILITY --------- */
 
-    const maxPeople = data.remaining;
+async function loadAvailability() {
+  const res = await fetch("/api/availability");
+  const data = await res.json();
 
-    if (maxPeople === 0) {
-      peopleInput.value = 0;
-      peopleInput.disabled = true;
-      submitBtn.disabled = true;
-      messageBox.textContent = "This session is fully booked";
+  timeSelect.innerHTML = "";
+
+  TIMES.forEach(t => {
+    const key = `${daySelect.value}|${t}`;
+    const taken = data[key] || 0;
+    const remaining = MAX_SPOTS - taken;
+
+    const opt = document.createElement("option");
+
+    if (remaining <= 0) {
+      opt.textContent = `${t} (FULL)`;
+      opt.disabled = true;
     } else {
-      peopleInput.disabled = false;
-      submitBtn.disabled = false;
-      peopleInput.min = 1;
-      peopleInput.max = maxPeople;
-      if (Number(peopleInput.value) > maxPeople) peopleInput.value = maxPeople;
-      messageBox.textContent = "";
+      opt.textContent = `${t} (${remaining} spots left)`;
+      opt.value = t;
     }
 
-    updateTotal();
-  } catch (err) {
-    console.error("Availability error:", err);
-  }
+    timeSelect.appendChild(opt);
+  });
+
+  adjustPeopleLimit();
 }
 
-// Update availability on load and on selection
-window.addEventListener("DOMContentLoaded", updateAvailability);
-daySelect.addEventListener("change", updateAvailability);
-timeSelect.addEventListener("change", updateAvailability);
+function adjustPeopleLimit() {
+  const selectedTime = timeSelect.value;
+  if (!selectedTime) return;
 
-// -------- FORM SUBMIT --------
-form.addEventListener("submit", async (e) => {
+  fetch("/api/availability")
+    .then(r => r.json())
+    .then(data => {
+      const key = `${daySelect.value}|${selectedTime}`;
+      const taken = data[key] || 0;
+      const remaining = MAX_SPOTS - taken;
+
+      if (remaining <= 0) {
+        peopleInput.disabled = true;
+        peopleInput.value = 0;
+      } else {
+        peopleInput.disabled = false;
+        peopleInput.min = 1;
+        peopleInput.max = remaining;
+        if (peopleInput.value > remaining) {
+          peopleInput.value = remaining;
+        }
+      }
+
+      updatePrice();
+    });
+}
+
+daySelect.addEventListener("change", loadAvailability);
+timeSelect.addEventListener("change", adjustPeopleLimit);
+
+loadAvailability();
+
+/* --------- SUBMIT --------- */
+
+form.addEventListener("submit", async e => {
   e.preventDefault();
   messageBox.textContent = "";
 
-  if (!daySelect.value) return alert("Select day");
-  if (!timeSelect.value) return alert("Select time");
-  if (!nameInput.value.trim()) return alert("Enter name");
-  if (!emailInput.value.trim()) return alert("Enter email");
-  if (!phoneInput.value.trim()) return alert("Enter phone");
-  if (!dontBotherCheckbox.checked) return alert("Accept rules");
-
-  if (Number(peopleInput.value) === 0) return alert("No spots available");
-
-  spinner.style.display = "inline";
-  submitBtn.disabled = true;
-
-  const people = Number(peopleInput.value);
-
-const bookingData = {
-  day: daySelect.value,
-  time: document.getElementById("timeSelect").value,
-  people: Number(peopleInput.value),
-  name: document.getElementById("nameInput").value.trim(),
-  email: document.getElementById("emailInput").value.trim(),
-  payment: document.getElementById("cashRadio").checked ? "cash" : "card"
-};
-
-await fetch("/api/book", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(bookingData)
-});
-
-
-    const data = await res.json();
-
-    if (data.error) {
-      messageBox.textContent = data.error;
-    } else {
-      if (cardRadio.checked) {
-        const payRes = await fetch("/api/pay", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: people * 2500 })
-        });
-        const payData = await payRes.json();
-        window.location.href = payData.url;
-      } else {
-        messageBox.textContent = `Booking #${data.booking_number} successful!`;
-        form.reset();
-        updateTotal();
-        updateAvailability();
-      }
-    }
-  } catch (err) {
-    console.error(err);
-    messageBox.textContent = "Server error";
+  if (!timeSelect.value || peopleInput.value < 1) {
+    messageBox.textContent = "This session is fully booked.";
+    return;
   }
 
-  spinner.style.display = "none";
-  submitBtn.disabled = false;
+  const bookingData = {
+    day: daySelect.value,
+    time: timeSelect.value,
+    people: Number(peopleInput.value),
+    name: document.getElementById("nameInput").value.trim(),
+    email: document.getElementById("emailInput").value.trim(),
+    payment: document.getElementById("cashRadio").checked ? "cash" : "card"
+  };
+
+  const res = await fetch("/api/book", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bookingData)
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    messageBox.textContent = data.error;
+  } else {
+    messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
+    form.reset();
+    loadAvailability();
+  }
 });
