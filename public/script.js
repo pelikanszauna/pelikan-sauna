@@ -1,4 +1,3 @@
-// ---------------- ELEMENTS ----------------
 const daySelect = document.getElementById("daySelect");
 const timeSelect = document.getElementById("timeSelect");
 const peopleInput = document.getElementById("peopleInput");
@@ -124,7 +123,7 @@ form.addEventListener("submit", async e => {
       messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
 
       if (data.stripeSessionId) {
-        // Redirect to Stripe checkout
+        // Stripe checkout redirect
         const stripe = Stripe("pk_live_51SwkvQPlKb0t3bXyXekkalxeZrtiEYJijjpWJTGBVU0kcNtpEy1MKyrBbEjuwknlLEoaqoT9MqXsVjnPbAsjTU7200ScbEHI4b");
         stripe.redirectToCheckout({ sessionId: data.stripeSessionId });
         return;

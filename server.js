@@ -7,8 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const BOOKINGS_FILE = path.join(process.cwd(), "bookings.json");
 const MAX_SPOTS = 6;
+const PRICE = 2500; // HUF per person
 
-// ---------------- MIDDLEWARE ----------------
 app.use(express.json());
 app.use(express.static("public"));
 
@@ -52,17 +52,29 @@ app.post("/api/book", async (req, res) => {
 
     const bookings = loadBookings();
     const taken = spotsTaken(bookings, day, time);
+
     if (taken + people > MAX_SPOTS) {
       return res.status(400).json({ error: "This session is fully booked" });
     }
 
     const bookingNumber = Date.now();
 
-    const booking = { bookingNumber, day, time, people, name, email, phone, payment, createdAt: new Date().toISOString() };
+    const booking = {
+      bookingNumber,
+      day,
+      time,
+      people,
+      name,
+      email,
+      phone,
+      payment,
+      createdAt: new Date().toISOString()
+    };
+
     bookings.push(booking);
     saveBookings(bookings);
 
-    // Stripe checkout session for card payments
+    // CARD PAYMENT -> Stripe
     if (payment === "card") {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.create({
@@ -71,7 +83,7 @@ app.post("/api/book", async (req, res) => {
           price_data: {
             currency: "huf",
             product_data: { name: `Sauna Booking ${day} ${time}` },
-            unit_amount: PRICE * people // amount in smallest currency unit
+            unit_amount: PRICE * people // HUF in smallest unit
           },
           quantity: 1
         }],
@@ -83,7 +95,7 @@ app.post("/api/book", async (req, res) => {
       return res.json({ success: true, bookingNumber, stripeSessionId: session.id });
     }
 
-    // cash booking
+    // CASH PAYMENT
     res.json({ success: true, bookingNumber });
   } catch (err) {
     console.error("Booking error:", err);
@@ -91,5 +103,4 @@ app.post("/api/book", async (req, res) => {
   }
 });
 
-// ---------------- START ----------------
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
