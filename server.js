@@ -42,38 +42,27 @@ oAuth2Client.setCredentials({
 });
 
 async function sendEmail(to, subject, text) {
-  try {
-    const accessToken = await oAuth2Client.getAccessToken();
+  const accessToken = await oAuth2Client.getAccessToken();
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        type: "OAuth2",
-        user: process.env.EMAIL_USER,
-        clientId: process.env.GMAIL_CLIENT_ID,
-        clientSecret: process.env.GMAIL_CLIENT_SECRET,
-        refreshToken: process.env.GMAIL_REFRESH_TOKEN,
-        accessToken: accessToken.token
-      },
-      logger: true,
-      debug: true
-    });
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      type: "OAuth2",
+      user: process.env.EMAIL_USER,
+      clientId: process.env.GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+      accessToken: accessToken.token
+    }
+  });
 
-    const info = await transporter.sendMail({
-      from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      text
-    });
-
-    console.log("✅ Email sent:", info);
-
-  } catch (err) {
-    console.error("❌ Email sending failed:", err);
-    throw err;
-  }
+  await transporter.sendMail({
+    from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    text
+  });
 }
-
 
 /* ---------------- HELPERS ---------------- */
 
