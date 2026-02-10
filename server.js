@@ -3,7 +3,6 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
-import { nanoid } from "nanoid";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,13 +14,12 @@ app.use(express.static("public"));
 
 // ----------------- LOWDB -----------------
 const adapter = new JSONFile("db.json");
-// default data ensures LowDB doesn't throw error
-const db = new Low(adapter, { sessions: {} });
+const db = new Low(adapter);
 
 await db.read();
 db.data ||= { sessions: {} };
 
-// ----------------- SESSION INIT -----------------
+// Initialize sessions if not exist
 const sessionDays = ["2026-02-01", "2026-02-02", "2026-02-03"];
 const timeSlots = ["10:00", "11:30", "13:00"];
 const MAX_PEOPLE = 6;
@@ -49,9 +47,7 @@ app.post("/api/book", async (req, res) => {
     return res.status(400).json({ error: "Not enough spots left" });
   }
 
-  const bookingNumber = nanoid(6).toUpperCase();
   const newBooking = {
-    bookingNumber,
     name,
     email,
     phone,
@@ -65,7 +61,7 @@ app.post("/api/book", async (req, res) => {
 
   await db.write();
 
-  res.json({ bookingNumber });
+  res.json({ success: true });
 });
 
 app.get("/api/sessions", async (req, res) => {

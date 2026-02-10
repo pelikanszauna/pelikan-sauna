@@ -7,7 +7,6 @@ const totalPrice = document.getElementById("totalPrice");
 const daySelect = document.getElementById("daySelect");
 const timeSelect = document.getElementById("timeSelect");
 
-const MAX_PEOPLE = 6;
 const PRICE_PER_PERSON = 2500;
 
 // ---------------- PRICE CALCULATION ----------------
@@ -23,7 +22,6 @@ async function loadSessions() {
   const res = await fetch("/api/sessions");
   const sessions = await res.json();
 
-  // Clear day select
   daySelect.innerHTML = "";
   for (const day in sessions) {
     const opt = document.createElement("option");
@@ -53,7 +51,7 @@ async function updateTimeSlots() {
   }
 
   // Update people input max
-  const remainingForSelectedTime = sessionTimes[timeSelect.value]?.remaining || MAX_PEOPLE;
+  const remainingForSelectedTime = sessionTimes[timeSelect.value]?.remaining || 6;
   peopleInput.max = remainingForSelectedTime;
   if (Number(peopleInput.value) > remainingForSelectedTime) peopleInput.value = remainingForSelectedTime;
   updateTotal();
@@ -112,8 +110,8 @@ form.addEventListener("submit", async (e) => {
     const data = await res.json();
     if (data.error) {
       messageBox.textContent = data.error;
-    } else if (data.bookingNumber) {
-      messageBox.textContent = `Booking successful! Your booking number is #${data.bookingNumber}`;
+    } else {
+      messageBox.textContent = `Booking successful!`;
       form.reset();
       updateTotal();
       await loadSessions(); // refresh remaining slots
