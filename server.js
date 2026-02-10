@@ -84,4 +84,12 @@ app.post("/api/book", async (req, res) => {
 });
 
 // Get sessions info
-app.get("/api/
+app.get("/api/sessions", async (req, res) => {
+  await db.read();
+  res.json(db.data.sessions);
+});
+
+// ----------------- START SERVER -----------------
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
