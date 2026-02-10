@@ -1,79 +1,64 @@
 import express from "express";
-import bodyParser from "body-parser";
-import cors from "cors";
-import { Low, JSONFile } from "lowdb/node";
-import { nanoid } from "nanoid";
+import sqlite3 from "sqlite3";
+import Stripe from "stripe";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const db = new sqlite3.Database("./db.sqlite");
 
-// ---------------- MIDDLEWARE ----------------
-app.use(cors());
-app.use(bodyParser.json());
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+app.use(express.json());
 app.use(express.static("public"));
 
-// ----------------- LOWDB -----------------
-const adapter = new JSONFile("db.json");
-const db = new Low(adapter);
+db.run(`
+CREATE TABLE IF NOT EXISTS bookings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT,
+  time TEXT,
+  people INTEGER,
+  name TEXT,
+  email TEXT,
+  phone TEXT
+)
+`);
 
-await db.read();
-db.data ||= { sessions: {} };
+app.post("/api/book", (req, res) => {
+  const { day, time, people, name, email, phone } = req.body;
 
-// ---------------- INITIALIZE SESSIONS -----------------
-const sessionDays = ["2026-02-01", "2026-02-02", "2026-02-03"];
-const timeSlots = ["10:00", "11:30", "13:00"];
-const MAX_PEOPLE = 6;
+  db.get(
+    "SELECT id FROM bookings WHERE day=? AND time=?",
+    [day, time],
+    (err, row) => {
+      if (row) {
+        return res.json({ error: "Slot already booked" });
+      }
 
-for (const day of sessionDays) {
-  if (!db.data.sessions[day]) db.data.sessions[day] = {};
-  for (const time of timeSlots) {
-    db.data.sessions[day][time] ||= { bookings: [], remaining: MAX_PEOPLE };
-  }
-}
-await db.write();
-
-// ----------------- ROUTES -----------------
-app.get("/api/sessions", async (req, res) => {
-  await db.read();
-  res.json(db.data.sessions);
+      db.run(
+        "INSERT INTO bookings VALUES (NULL,?,?,?,?,?,?)",
+        [day, time, people, name, email, phone],
+        () => res.json({ success: true })
+      );
+    }
+  );
 });
 
-app.post("/api/book", async (req, res) => {
-  const { day, time, people, name, email, phone, payment } = req.body;
+app.post("/api/pay", async (req, res) => {
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    payment_method_types: ["card"],
+    line_items: [{
+      price_data: {
+        currency: "huf",
+        product_data: { name: "Sauna Session" },
+        unit_amount: req.body.amount * 100
+      },
+      quantity: 1
+    }],
+    success_url: "https://pelikanbudapest.onrender.com/success.html",
+    cancel_url: "https://pelikanbudapest.onrender.com/cancel.html"
+  });
 
-  if (!day || !time || !people || !name || !email || !phone) {
-    return res.status(400).json({ error: "Missing data" });
-  }
-
-  const session = db.data.sessions[day]?.[time];
-  if (!session) return res.status(400).json({ error: "Invalid session" });
-
-  if (people > session.remaining) {
-    return res.status(400).json({ error: "Not enough spots left" });
-  }
-
-  const bookingId = nanoid(6); // short unique booking number
-
-  const newBooking = {
-    id: bookingId,
-    name,
-    email,
-    phone,
-    people,
-    payment,
-    timestamp: Date.now()
-  };
-
-  session.bookings.push(newBooking);
-  session.remaining -= people;
-
-  await db.write();
-
-  // Respond with booking ID so front-end can show message
-  res.json({ success: true, bookingId });
+  res.json({ url: session.url });
 });
 
-// ----------------- START SERVER -----------------
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(3000);
