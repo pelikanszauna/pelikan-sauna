@@ -121,6 +121,7 @@ app.post("/api/book", async (req, res) => {
     bookings.push(booking);
     saveBookings(bookings);
 
+    // EMAILS (non-blocking)
     const message = `
 Booking number: ${bookingNumber}
 
@@ -131,25 +132,34 @@ People: ${people}
 Payment: ${payment}
 `;
 
-    await sendEmail(
-      email,
-      `Pelikan Szauna Booking #${bookingNumber}`,
-      `Thank you for your booking!\n${message}`
-    );
+    try {
+      await sendEmail(
+        email,
+        `Pelikan Szauna Booking #${bookingNumber}`,
+        `Thank you for your booking!\n${message}`
+      );
 
-    await sendEmail(
-      "pelikanszauna@gmail.com",
-      `New booking #${bookingNumber}`,
-      message
-    );
+      await sendEmail(
+        "pelikanszauna@gmail.com",
+        `New booking #${bookingNumber}`,
+        message
+      );
+    } catch (emailError) {
+      console.error("Email failed, booking still saved:", emailError.message);
+    }
 
-    res.json({ success: true, bookingNumber });
+    res.json({
+      success: true,
+      bookingNumber,
+      emailStatus: "attempted"
+    });
 
   } catch (err) {
-    console.error(err);
+    console.error("Booking error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 /* ---------------- START ---------------- */
 
