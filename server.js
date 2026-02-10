@@ -4,6 +4,7 @@ import cors from "cors";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { nanoid } from "nanoid";
+import fs from "fs";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -13,14 +14,27 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static("public"));
 
-// Setup lowdb
-const adapter = new JSONFile("db.json");
+// ----------------- LOWDB -----------------
+
+// Path to database file
+const file = "db.json";
+const adapter = new JSONFile(file);
 const db = new Low(adapter);
 
+// Ensure db file exists with default data
+if (!fs.existsSync(file)) {
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ sessions: {} }, null, 2),
+    "utf-8"
+  );
+}
+
 await db.read();
-db.data ||= { sessions: {} };
 
 // Initialize sessions if empty
+db.data ||= { sessions: {} };
+
 const sessionDays = ["2026-02-01", "2026-02-02", "2026-02-03"];
 const timeSlots = ["10:00", "11:30", "13:00"];
 const MAX_PEOPLE = 6;
@@ -33,11 +47,12 @@ for (const day of sessionDays) {
 }
 await db.write();
 
+// ----------------- ROUTES -----------------
+
 // Booking route
 app.post("/api/book", async (req, res) => {
   const { day, time, people, name, email, phone, payment } = req.body;
 
-  // Validation
   if (!day || !time || !people || !name || !email || !phone) {
     return res.status(400).json({ error: "Missing data" });
   }
@@ -68,13 +83,5 @@ app.post("/api/book", async (req, res) => {
   res.json({ bookingNumber });
 });
 
-// Endpoint to get sessions info (for frontend)
-app.get("/api/sessions", async (req, res) => {
-  await db.read();
-  res.json(db.data.sessions);
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Get sessions info
+app.get("/api/
