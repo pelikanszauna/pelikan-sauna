@@ -1,141 +1,76 @@
-const daySelect = document.getElementById("daySelect");
-const timeSelect = document.getElementById("timeSelect");
-const peopleInput = document.getElementById("peopleInput");
-const totalPriceEl = document.getElementById("totalPrice");
-const form = document.getElementById("bookingForm");
-const messageBox = document.getElementById("messageBox");
-const spinner = document.getElementById("spinner");
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pelikan Sauna | Booking</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="style.css">
+<script src="https://js.stripe.com/v3/"></script>
+</head>
 
-const PRICE_PER_PERSON = 2500;
-const MAX_SPOTS = 6;
+<body>
 
-const DAYS = ["2026-02-01", "2026-02-02", "2026-02-03"];
-const TIMES = ["10:00", "11:30", "13:00"];
+<div class="overlay">
+  <div class="card">
 
-// Populate day select
-DAYS.forEach(d => {
-  const opt = document.createElement("option");
-  opt.value = d;
-  opt.textContent = d;
-  daySelect.appendChild(opt);
-});
+    <img src="pelikanlogo.png" class="logo">
 
-// Update total price
-function updatePrice() {
-  totalPriceEl.textContent = Number(peopleInput.value) * PRICE_PER_PERSON;
-}
-peopleInput.addEventListener("input", updatePrice);
-updatePrice();
+    <p class="intro">
+      Welcome to Pelikan Sauna. Enjoy premium Finnish sauna experience in the heart of Budapest.
+    </p>
 
-// Load availability
-async function loadAvailability() {
-  const res = await fetch("/api/availability");
-  const data = await res.json();
+    <div class="price-box">
+      2500 HUF / person / 1.5 hour
+    </div>
 
-  timeSelect.innerHTML = "";
+    <form id="bookingForm">
 
-  TIMES.forEach(t => {
-    const key = `${daySelect.value}|${t}`;
-    const taken = data[key] || 0;
-    const remaining = MAX_SPOTS - taken;
+      <label>Session Day</label>
+      <select id="daySelect"></select>
 
-    const opt = document.createElement("option");
-    opt.value = t;
+      <label>Time Slot</label>
+      <select id="timeSelect">
+        <option value="10:00">10:00</option>
+        <option value="11:30">11:30</option>
+        <option value="13:00">13:00</option>
+      </select>
 
-    if (remaining <= 0) {
-      opt.textContent = `${t} (FULL)`;
-      opt.disabled = true;
-    } else {
-      opt.textContent = `${t} (${remaining} spots left)`;
-    }
+      <label>People</label>
+      <input type="number" id="peopleInput" min="1" max="6" value="1">
 
-    timeSelect.appendChild(opt);
-  });
+      <label>Name</label>
+      <input type="text" id="nameInput">
 
-  adjustPeopleLimit();
-}
+      <label>Email</label>
+      <input type="email" id="emailInput">
 
-function adjustPeopleLimit() {
-  const selectedTime = timeSelect.value;
-  if (!selectedTime) return;
+      <label>Phone</label>
+      <input type="tel" id="phoneInput" placeholder="+36">
 
-  fetch("/api/availability")
-    .then(r => r.json())
-    .then(data => {
-      const key = `${daySelect.value}|${selectedTime}`;
-      const remaining = MAX_SPOTS - (data[key] || 0);
+      <label>
+        <input type="checkbox" id="dontBotherCheckbox">
+        I accept sauna rules
+      </label>
 
-      peopleInput.max = remaining;
-      if (peopleInput.value > remaining) peopleInput.value = remaining;
+      <label>Payment</label>
+      <input type="radio" name="payment" value="cash" id="cashRadio" checked> Cash
+      <input type="radio" name="payment" value="card" id="cardRadio"> Card
 
-      peopleInput.disabled = remaining <= 0;
-      updatePrice();
-    });
-}
+      <div class="total">
+        Total: <span id="totalPrice">2500</span> HUF
+      </div>
 
-daySelect.addEventListener("change", loadAvailability);
-timeSelect.addEventListener("change", adjustPeopleLimit);
+      <button type="submit" id="submitBtn">
+        Book Session <span id="spinner" style="display:none;">⏳</span>
+      </button>
 
-loadAvailability();
+      <div id="messageBox"></div>
 
-// Form submit
-form.addEventListener("submit", async e => {
-  e.preventDefault();
-  messageBox.textContent = "";
-  spinner.style.display = "inline-block";
-  form.querySelector("#submitBtn").disabled = true;
+    </form>
 
-  if (!daySelect.value || !timeSelect.value || peopleInput.value < 1) {
-    messageBox.textContent = "Please select a session and number of people";
-    spinner.style.display = "none";
-    form.querySelector("#submitBtn").disabled = false;
-    return;
-  }
+  </div>
+</div>
 
-  if (!document.getElementById("nameInput").value.trim() ||
-      !document.getElementById("emailInput").value.trim() ||
-      !document.getElementById("phoneInput").value.trim() ||
-      !document.getElementById("dontBotherCheckbox").checked) {
-    messageBox.textContent = "Please fill all fields and accept sauna rules";
-    spinner.style.display = "none";
-    form.querySelector("#submitBtn").disabled = false;
-    return;
-  }
-
-  const bookingData = {
-    day: daySelect.value,
-    time: timeSelect.value,
-    people: Number(peopleInput.value),
-    name: document.getElementById("nameInput").value.trim(),
-    email: document.getElementById("emailInput").value.trim(),
-    phone: document.getElementById("phoneInput").value.trim(),
-    payment: document.querySelector('input[name="payment"]:checked').value
-  };
-
-  try {
-    const res = await fetch("/api/book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(bookingData)
-    });
-
-    const data = await res.json();
-
-    if (data.error) {
-      messageBox.textContent = data.error;
-    } else if (data.paymentUrl) {
-      // Card payment → redirect to Stripe
-      window.location.href = data.paymentUrl;
-    } else {
-      messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
-      form.reset();
-      loadAvailability();
-    }
-  } catch (err) {
-    console.error("Booking error:", err);
-    messageBox.textContent = "Server error. Try again later.";
-  }
-
-  spinner.style.display = "none";
-  form.querySelector("#submitBtn").disabled = false;
-});
+<script src="script.js"></script>
+</body>
+</html>
