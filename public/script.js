@@ -8,7 +8,7 @@ const form = document.getElementById("bookingForm");
 const PRICE = 2500;
 const MAX_SPOTS = 6;
 
-// ---------- DAYS & TIMES ----------
+/* --------- STATIC DAYS & TIMES --------- */
 
 const DAYS = [
   "2026-02-01",
@@ -18,7 +18,7 @@ const DAYS = [
 
 const TIMES = ["10:00", "11:30", "13:00"];
 
-// ---------- INIT DAYS ----------
+/* --------- INIT DAYS --------- */
 
 function initDays() {
   daySelect.innerHTML = "";
@@ -27,21 +27,20 @@ function initDays() {
     const opt = document.createElement("option");
     opt.value = day;
     opt.textContent = day;
-    if (index === 0) opt.selected = true;
+    if (index === 0) opt.selected = true; // 👈 IMPORTANT
     daySelect.appendChild(opt);
   });
 }
 
-// ---------- PRICE ----------
+/* --------- PRICE --------- */
 
 function updatePrice() {
-  const people = parseInt(peopleInput.value, 10) || 1;
-  totalPrice.textContent = people * PRICE;
+  totalPrice.textContent = peopleInput.value * PRICE;
 }
 
 peopleInput.addEventListener("input", updatePrice);
 
-// ---------- AVAILABILITY ----------
+/* --------- AVAILABILITY --------- */
 
 async function loadAvailability() {
   const res = await fetch("/api/availability");
@@ -84,7 +83,6 @@ function adjustPeopleLimit() {
       peopleInput.disabled = remaining <= 0;
       peopleInput.min = 1;
       peopleInput.max = remaining;
-
       if (peopleInput.value > remaining) {
         peopleInput.value = remaining;
       }
@@ -96,7 +94,7 @@ function adjustPeopleLimit() {
 daySelect.addEventListener("change", loadAvailability);
 timeSelect.addEventListener("change", adjustPeopleLimit);
 
-// ---------- SUBMIT ----------
+/* --------- SUBMIT --------- */
 
 form.addEventListener("submit", async e => {
   e.preventDefault();
@@ -107,7 +105,7 @@ form.addEventListener("submit", async e => {
   const bookingData = {
     day: daySelect.value,
     time: timeSelect.value,
-    people: parseInt(peopleInput.value, 10),
+    people: Number(peopleInput.value),
     name: document.getElementById("nameInput").value.trim(),
     email: document.getElementById("emailInput").value.trim(),
     phone: document.getElementById("phoneInput").value.trim(),
@@ -140,7 +138,7 @@ form.addEventListener("submit", async e => {
   }
 });
 
-// ---------- INIT ----------
+/* --------- INITIAL LOAD --------- */
 
 initDays();
 updatePrice();
