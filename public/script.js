@@ -9,52 +9,43 @@ const PRICE = 2500;
 const MAX_SPOTS = 6;
 
 /* --------- STATIC DAYS & TIMES --------- */
-
 const DAYS = [
   "2026-02-01",
   "2026-02-02",
   "2026-02-03"
 ];
-
 const TIMES = ["10:00", "11:30", "13:00"];
 
 /* --------- INIT DAYS --------- */
-
 function initDays() {
   daySelect.innerHTML = "";
-
   DAYS.forEach((day, index) => {
     const opt = document.createElement("option");
     opt.value = day;
     opt.textContent = day;
-    if (index === 0) opt.selected = true; // 👈 IMPORTANT
+    if (index === 0) opt.selected = true;
     daySelect.appendChild(opt);
   });
 }
 
 /* --------- PRICE --------- */
-
 function updatePrice() {
   totalPrice.textContent = peopleInput.value * PRICE;
 }
-
 peopleInput.addEventListener("input", updatePrice);
 
 /* --------- AVAILABILITY --------- */
-
 async function loadAvailability() {
   const res = await fetch("/api/availability");
   const data = await res.json();
 
   timeSelect.innerHTML = "";
-
   TIMES.forEach(time => {
     const key = `${daySelect.value}|${time}`;
     const taken = data[key] || 0;
     const remaining = MAX_SPOTS - taken;
 
     const opt = document.createElement("option");
-
     if (remaining <= 0) {
       opt.textContent = `${time} (FULL)`;
       opt.disabled = true;
@@ -83,9 +74,7 @@ function adjustPeopleLimit() {
       peopleInput.disabled = remaining <= 0;
       peopleInput.min = 1;
       peopleInput.max = remaining;
-      if (peopleInput.value > remaining) {
-        peopleInput.value = remaining;
-      }
+      if (peopleInput.value > remaining) peopleInput.value = remaining;
 
       updatePrice();
     });
@@ -95,7 +84,6 @@ daySelect.addEventListener("change", loadAvailability);
 timeSelect.addEventListener("change", adjustPeopleLimit);
 
 /* --------- SUBMIT --------- */
-
 form.addEventListener("submit", async e => {
   e.preventDefault();
   messageBox.textContent = "";
@@ -123,9 +111,14 @@ form.addEventListener("submit", async e => {
 
     if (data.error) {
       messageBox.textContent = data.error;
-    } else if (data.paymentUrl) {
+      return;
+    }
+
+    if (data.paymentUrl) {
+      // For card payments, just redirect to Stripe
       window.location.href = data.paymentUrl;
     } else {
+      // For cash payments, show success immediately
       messageBox.textContent = `Booking successful! Your number: ${data.bookingNumber}`;
       form.reset();
       initDays();
@@ -139,7 +132,6 @@ form.addEventListener("submit", async e => {
 });
 
 /* --------- INITIAL LOAD --------- */
-
 initDays();
 updatePrice();
 loadAvailability();
