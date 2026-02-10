@@ -1,92 +1,157 @@
 import express from "express";
-import sqlite3 from "sqlite3";
-import Stripe from "stripe";
+import fs from "fs";
+import path from "path";
 import nodemailer from "nodemailer";
+import { google } from "googleapis";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
-const db = new sqlite3.Database("./db.sqlite");
-
-// Stripe & environment
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static("public"));
 
-// Database table
-db.run(`
-CREATE TABLE IF NOT EXISTS bookings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  booking_number INTEGER UNIQUE,
-  day TEXT,
-  time TEXT,
-  people INTEGER,
-  name TEXT,
-  email TEXT,
-  phone TEXT
-)
-`);
+/* -------------------- STORAGE -------------------- */
 
-// Nodemailer
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
+const BOOKINGS_FILE = path.join(__dirname, "bookings.json");
+
+function loadBookings() {
+  if (!fs.existsSync(BOOKINGS_FILE)) return [];
+  return JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8"));
+}
+
+function saveBookings(bookings) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2));
+}
+
+/* -------------------- EMAIL (GMAIL OAUTH2) -------------------- */
+
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET
+);
+
+oAuth2Client.setCredentials({
+  refresh_token: process.env.GMAIL_REFRESH_TOKEN
 });
 
-// -------- AVAILABILITY --------
-app.get("/api/availability", (req, res) => {
-  const { day, time } = req.query;
-  db.get(
-    `SELECT COALESCE(SUM(people),0) AS booked FROM bookings WHERE day=? AND time=?`,
-    [day, time],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: "Database error" });
-      const remaining = Math.max(0, 6 - row.booked);
-      res.json({ remaining });
+async function sendEmail(to, subject, text) {
+  const accessToken = await oAuth2Client.getAccessToken();
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      type: "OAuth2",
+      user: process.env.EMAIL_USER,
+      clientId: process.env.GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+      accessToken: accessToken.token
     }
-  );
+  });
+
+  await transporter.sendMail({
+    from: `"Pelikan Szauna" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    text
+  });
+}
+
+/* -------------------- HELPERS -------------------- */
+
+const MAX_SLOTS = 6;
+
+function slotsTaken(bookings, date, session) {
+  return bookings
+    .filter(b => b.date === date && b.session === session)
+    .reduce((sum, b) => sum + b.persons, 0);
+}
+
+/* -------------------- API -------------------- */
+
+// availability for frontend
+app.get("/api/availability", (req, res) => {
+  const bookings = loadBookings();
+  const result = {};
+
+  bookings.forEach(b => {
+    const key = `${b.date}_${b.session}`;
+    result[key] = (result[key] || 0) + b.persons;
+  });
+
+  res.json(result);
 });
 
-// -------- BOOKING --------
-app.post("/api/book", (req, res) => {
-  const { day, time, people, name, email, phone } = req.body;
+// create booking
+app.post("/api/book", async (req, res) => {
+  try {
+    const { name, email, date, session, persons, paymentMethod } = req.body;
 
-  if (!day || !time || !people || !name || !email || !phone) {
-    return res.status(400).json({ error: "Missing booking data" });
+    if (!name || !email || !date || !session || !persons) {
+      return res.status(400).json({ error: "Missing data" });
+    }
+
+    const bookings = loadBookings();
+    const taken = slotsTaken(bookings, date, session);
+
+    if (taken + persons > MAX_SLOTS) {
+      return res.status(400).json({
+        error: "This session is fully booked"
+      });
+    }
+
+    const bookingNumber = Date.now();
+
+    const booking = {
+      bookingNumber,
+      name,
+      email,
+      date,
+      session,
+      persons,
+      paymentMethod,
+      createdAt: new Date().toISOString()
+    };
+
+    bookings.push(booking);
+    saveBookings(bookings);
+
+    const message = `
+Booking number: ${bookingNumber}
+
+Name: ${name}
+Date: ${date}
+Session: ${session}
+Persons: ${persons}
+Payment: ${paymentMethod}
+`;
+
+    await sendEmail(
+      email,
+      `Pelikan Szauna Booking #${bookingNumber}`,
+      `Thank you for your booking!\n${message}`
+    );
+
+    await sendEmail(
+      "pelikanszauna@gmail.com",
+      `New booking #${bookingNumber}`,
+      message
+    );
+
+    res.json({ success: true, bookingNumber });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
+});
 
-  db.get(
-    `SELECT COALESCE(SUM(people),0) AS booked FROM bookings WHERE day=? AND time=?`,
-    [day, time],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: "Database error" });
+/* -------------------- START -------------------- */
 
-      const remaining = 6 - row.booked;
-      if (people > remaining) {
-        return res.json({ error: `Only ${remaining} spots left for this session` });
-      }
-
-      // Generate booking number
-      db.get(`SELECT MAX(booking_number) AS maxNumber FROM bookings`, [], (err, row2) => {
-        if (err) return res.status(500).json({ error: "DB error" });
-        const booking_number = (row2?.maxNumber || 0) + 1;
-
-        db.run(
-          `INSERT INTO bookings (booking_number, day, time, people, name, email, phone) VALUES (?,?,?,?,?,?,?)`,
-          [booking_number, day, time, people, name, email, phone],
-          async (err) => {
-            if (err) return res.status(500).json({ error: "Database insert error" });
-
-            // Send emails
-            try {
-              await transporter.sendMail({
-                from: `"Pelikan Sauna" <${process.env.EMAIL_USER}>`,
-                to: email,
-                subject: `Booking #${booking_number} Confirmation`,
-                text: `Hi ${name},\n\nYour booking #${booking_number} is confirmed!\nDate: ${day}\nTime: ${time}\nPeople: ${people}\n\nThank you for choosing Pelikan Sauna.`
-              });
-
-              await transporter.sendMail({
-                from: `"Pelikan Sauna" <${p
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
